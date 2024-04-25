@@ -5,7 +5,7 @@
 
 void DramAnalyzer::find_bank_conflicts() {
   size_t nr_banks_cur = 0;
-  int remaining_tries = NUM_BANKS*256;  // experimentally determined, may be unprecise
+  int remaining_tries = NUM_BANKS*512;  // experimentally determined, may be unprecise
   while (nr_banks_cur < NUM_BANKS && remaining_tries > 0) {
     reset:
     remaining_tries--;
@@ -13,7 +13,7 @@ void DramAnalyzer::find_bank_conflicts() {
     auto a2 = start_address + (dist(gen)%(MEM_SIZE/64))*64;
     auto ret1 = measure_time(a1, a2);
     auto ret2 = measure_time(a1, a2);
-
+    // fprintf(stderr, "ret1: %d, ret2: %d\n", ret1, ret2);
     if ((ret1 > THRESH) && (ret2 > THRESH)) {
       bool all_banks_set = true;
       for (size_t i = 0; i < NUM_BANKS; i++) {
@@ -47,7 +47,6 @@ void DramAnalyzer::find_bank_conflicts() {
       exit(1);
     }
   }
-
   Logger::log_info("Found bank conflicts.");
   for (auto &bank : banks) {
     find_targets(bank);
@@ -70,6 +69,8 @@ void DramAnalyzer::find_targets(std::vector<volatile char *> &target_bank) {
         cumulative_times += measure_time(a1, addr);
       }
     }
+    // fprintf(stderr, "cumulative_times: %ld, num_repititions: %ld, tmp.size(): %ld\n", cumulative_times, num_repetitions, tmp.size());
+    if(num_repetitions * tmp.size() == 0) continue;
     cumulative_times /= num_repetitions;
     if ((cumulative_times/tmp.size()) > THRESH) {
       tmp.insert(a1);
@@ -92,11 +93,11 @@ std::vector<uint64_t> DramAnalyzer::get_bank_rank_functions() {
 
 void DramAnalyzer::load_known_functions(int num_ranks) {
   if (num_ranks==1) {
-    bank_rank_functions = std::vector<uint64_t>({0x2040, 0x24000, 0x48000, 0x90000});
-    row_function = 0x3ffe0000;
+    bank_rank_functions = std::vector<uint64_t>({0x100040, 0x220000, 0x440000, 0x880000});
+    row_function = 0x3fff1c000;
   } else if (num_ranks==2) {
-    bank_rank_functions = std::vector<uint64_t>({0x2040, 0x44000, 0x88000, 0x110000, 0x220000});
-    row_function = 0x3ffc0000;
+    bank_rank_functions = std::vector<uint64_t>({0x2000, 0x200040, 0x440000, 0x880000, 0x1100000});
+    row_function = 0x7ffe38000;
   } else {
     Logger::log_error("Cannot load bank/rank and row function if num_ranks is not 1 or 2.");
     exit(1);
@@ -139,8 +140,10 @@ size_t DramAnalyzer::count_acts_per_trefi() {
 
   for (size_t i = 0;; i++) {
     // flush a and b from caches
-    clflushopt(a);
-    clflushopt(b);
+    // clflushopt(a);
+    // clflushopt(b);
+    clflush(a);
+    clflush(b);
     mfence();
 
     // get start timestamp and wait until we retrieved it
@@ -155,14 +158,16 @@ size_t DramAnalyzer::count_acts_per_trefi() {
     after = rdtscp();
 
     count++;
-    if ((after - before) > 1000) {
+    // printf("after - before: %ld\n", after - before);
+    if ((after - before) > 850) {
       if (i > skip_first_N && count_old!=0) {
         // multiply by 2 to account for both accesses we do (a, b)
         uint64_t value = (count - count_old)*2;
         acts.push_back(value);
         running_sum += value;
         // check after each 200 data points if our standard deviation reached 1 -> then stop collecting measurements
-        if ((acts.size()%200)==0 && compute_std(acts, running_sum, acts.size())<3.0) break;
+        if ((acts.size()%200)==0 && compute_std(acts, running_sum, acts.size())<30.0) break;
+        // fprintf(stderr, "std: %f\n", compute_std(acts, running_sum, acts.size()));
       }
       count_old = count;
     }

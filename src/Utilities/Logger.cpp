@@ -93,6 +93,7 @@ void Logger::log_bitflip(volatile char *flipped_address, uint64_t row_no, unsign
   instance.logfile << FC_GREEN
                    << "[!] Flip " << std::hex << (void *) flipped_address << ", "
                    << std::dec << "row " << row_no << ", "
+                   << "page #: " << (uint64_t)flipped_address/(uint64_t)getpagesize() << ", "
                    << "page offset: " << (uint64_t)flipped_address%(uint64_t)getpagesize() << ", "
                    << "byte offset: " << (uint64_t)flipped_address%(uint64_t)8 << ", "
                    << std::hex << "from " << (int) expected_value << " to " << (int) actual_value << ", "

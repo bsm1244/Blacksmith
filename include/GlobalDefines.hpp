@@ -47,8 +47,8 @@ uint64_t static inline GB(uint64_t value) {
 #define HAMMER_ROUNDS 1000000
 
 // threshold to distinguish between row buffer miss (t > THRESH) and row buffer hit (t < THRESH)
-#define THRESH 495  // worked best on DIMM 6
-//#define THRESH 430  // worked best on DIMM 18
+// #define THRESH 495  // worked best on DIMM 6
+#define THRESH 430  // worked best on DIMM 18
 
 // number of conflicting addresses to be determined for each bank
 #define NUM_TARGETS 10
@@ -66,6 +66,9 @@ uint64_t static inline GB(uint64_t value) {
 #define CHANNEL 1
 
 // number of bytes to be allocated
-#define MEM_SIZE (GB(1))
+#define MEM_SIZE (GB(24))
+
+// vendor for row remapping in Samsung DIMMs
+#define VENDOR "s"
 
 #endif /* GLOBAL_DEFINES */

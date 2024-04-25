@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.11 FATAL_ERROR)
-project(blacksmith VERSION 0.0.1 LANGUAGES CXX)
+project(blacksmith_1GB VERSION 0.0.1 LANGUAGES CXX)
 
 # === OPTIONS ==================================================================
 
@@ -93,6 +93,7 @@ target_compile_options(
         -Wextra
         -Wno-unused-function
         -Wno-format-security
+        -ggdb
 )
 
 if (BLACKSMITH_ENABLE_JSON)
@@ -136,19 +137,19 @@ endif ()
 # === BLACKSMITH ===============================================================
 
 add_executable(
-        blacksmith
+        blacksmith_1GB
         include/Blacksmith.hpp
         src/Blacksmith.cpp
 )
 
 target_compile_definitions(
-        blacksmith
+        blacksmith_1GB
         PRIVATE
         GIT_COMMIT_HASH="${GIT_COMMIT_HASH}"
 )
 
 target_link_libraries(
-        blacksmith
+        blacksmith_1GB
         PRIVATE
         bs
         argagg

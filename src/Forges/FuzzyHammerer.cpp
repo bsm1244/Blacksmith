@@ -5,6 +5,7 @@
 #include "Utilities/TimeHelper.hpp"
 #include "Fuzzer/PatternBuilder.hpp"
 #include "Forges/ReplayingHammerer.hpp"
+#include <ctime>
 
 // initialize the static variables
 size_t FuzzyHammerer::cnt_pattern_probes = 0UL;
@@ -19,7 +20,6 @@ void FuzzyHammerer::n_sided_frequency_based_hammering(DramAnalyzer &dramAnalyzer
 
   Logger::log_info(
       format_string("Starting frequency-based fuzzer run with time limit of %l minutes.", runtime_limit/60));
-
   // make sure that this is empty (e.g., from previous call to this function)
   map_pattern_mappings_bitflips.clear();
 
@@ -44,7 +44,13 @@ void FuzzyHammerer::n_sided_frequency_based_hammering(DramAnalyzer &dramAnalyzer
   const auto start_ts = get_timestamp_sec();
   const auto execution_time_limit = static_cast<int64_t>(start_ts + runtime_limit);
 
+  time_t timer;
+  struct tm *t;
+
   for (; get_timestamp_sec() < execution_time_limit; ++cnt_generated_patterns) {
+    timer = time(NULL);
+    t = localtime(&timer);
+    
     Logger::log_timestamp();
     Logger::log_highlight(format_string("Generating hammering pattern #%lu.", cnt_generated_patterns));
     fuzzing_params.randomize_parameters(true);
@@ -71,6 +77,8 @@ void FuzzyHammerer::n_sided_frequency_based_hammering(DramAnalyzer &dramAnalyzer
 //          current_round, hammering_pattern.instance_id.c_str(), cnt_pattern_probes, mapper.get_instance_id().c_str()));
 //
       // we test this combination of (pattern, mapping) at three different DRAM locations
+      Logger::log_info(
+          format_string("Current hour: %d, minute: %d, second: %d.",t->tm_hour, t->tm_min, t->tm_sec));
       probe_mapping_and_scan(mapper, memory, fuzzing_params, program_args.num_dram_locations_per_mapping);
       sum_flips_one_pattern_all_mappings += mapper.count_bitflips();
 
@@ -287,7 +295,6 @@ void FuzzyHammerer::probe_mapping_and_scan(PatternAddressMapper &mapper, Memory 
                                            FuzzingParameterSet &fuzzing_params, size_t num_dram_locations) {
 
   // ATTENTION: This method uses the global variable hammering_pattern to refer to the pattern that is to be hammered
-
   CodeJitter &code_jitter = mapper.get_code_jitter();
 
   // randomize the aggressor ID -> DRAM row mapping
@@ -335,11 +342,18 @@ void FuzzyHammerer::probe_mapping_and_scan(PatternAddressMapper &mapper, Memory 
     code_jitter.hammer_pattern(fuzzing_params, true);
 
     // check if any bit flips happened
-    flipped_bits += memory.check_memory(mapper, false, true);
+    // flipped_bits += memory.check_memory(mapper, false, true);
+    
+    // check allocated memory area to find coupled row
+    // flipped_bits += memory.check_memory_sb((const volatile char *) 0x10000000000, (const volatile char *) 0x10300000000, mapper.bank_counter-1);
+    flipped_bits += memory.check_memory_sb((const volatile char *) 0x10000000000, (const volatile char *) 0x10600000000, mapper.bank_counter-1);
 
     // now shift the mapping to another location
     std::mt19937 gen = std::mt19937(std::random_device()());
     mapper.shift_mapping(Range<int>(1,32).get_random_number(gen), {});
+
+    // export pattern should be added for update
+    mapper.export_pattern(hammering_pattern.aggressors, hammering_pattern.base_period, hammering_accesses_vec);
 
     if (dram_location + 1 < num_dram_locations) {
       // wait a bit and do some random accesses before checking reproducibility of the pattern

@@ -21,7 +21,7 @@ class Memory {
  private:
   /// the starting address of the allocated memory area
   /// this is a fixed value as the assumption is that all memory cells are equally vulnerable
-  volatile char *start_address = (volatile char *) 0x2000000000;
+  volatile char *start_address = (volatile char *) 0x10000000000;
 
   // the mount point of the huge pages filesystem
   const std::string hugetlbfs_mountpoint = "/mnt/huge/buff";
@@ -34,6 +34,8 @@ class Memory {
 
   size_t check_memory_internal(PatternAddressMapper &mapping, const volatile char *start,
                                const volatile char *end, bool reproducibility_mode, bool verbose);
+  size_t check_memory_internal_sb(PatternAddressMapper &mapping, const volatile char *start,
+                               const volatile char *end, bool reproducibility_mode, bool verbose, int bank_counter);
 
  public:
 
@@ -47,8 +49,10 @@ class Memory {
   void allocate_memory(size_t mem_size);
 
   void initialize(DATA_PATTERN data_pattern);
+  void initialize_inv();
 
   size_t check_memory(const volatile char *start, const volatile char *end);
+  size_t check_memory_sb(const volatile char *start, const volatile char *end, int bank_counter);
 
   size_t check_memory(PatternAddressMapper &mapping, bool reproducibility_mode, bool verbose);
 

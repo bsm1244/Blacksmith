@@ -5,6 +5,15 @@
 #include "GlobalDefines.hpp"
 #include "Utilities/Uuid.hpp"
 
+size_t remap[16] = {0,1,2,3,4,5,6,7,14,15,12,13,10,11,8,9};
+
+size_t remapping(size_t row){
+  if(VENDOR == "s")
+    return (row / 16) * 16 + remap[row % 16];
+  else
+    return row;
+}
+
 // initialize the bank_counter (static var)
 int PatternAddressMapper::bank_counter = 0;
 
@@ -22,7 +31,6 @@ void PatternAddressMapper::randomize_addresses(FuzzingParameterSet &fuzzing_para
                                                bool verbose) {
   // clear any already existing mapping
   aggressor_to_addr.clear();
-
   // retrieve and then store randomized values as they should be the same for all added addresses
   // (store bank_no as field for get_random_nonaccessed_rows)
   bank_no = PatternAddressMapper::bank_counter;
@@ -79,9 +87,9 @@ void PatternAddressMapper::randomize_addresses(FuzzingParameterSet &fuzzing_para
 //  Logger::log_info(format_string("cnt_1 = %lu", cnt_1));
 
   for (auto &acc_pattern : agg_access_patterns) {
+
     for (size_t i = 0; i < acc_pattern.aggressors.size(); i++) {
       const Aggressor &current_agg = acc_pattern.aggressors.at(i);
-
       // aggressor has existing row mapping OR
       if (aggressor_to_addr.count(current_agg.id) > 0) {
         row = aggressor_to_addr.at(current_agg.id).row;
@@ -89,14 +97,14 @@ void PatternAddressMapper::randomize_addresses(FuzzingParameterSet &fuzzing_para
         // we need to add the appropriate distance and cannot choose randomly
         auto last_addr = aggressor_to_addr.at(acc_pattern.aggressors.at(i - 1).id);
         // update cur_row for its next use (note that here it is: cur_row = last_addr.row)
-        cur_row = (last_addr.row + (size_t) fuzzing_params.get_agg_intra_distance())%fuzzing_params.get_max_row_no();
+        cur_row = remapping((remapping(last_addr.row) + (size_t) fuzzing_params.get_agg_intra_distance()))%fuzzing_params.get_max_row_no();
         row = cur_row;
       } else {
         // this is a new aggressor pair - we can choose where to place it
         // if use_seq_addresses is true, we use the last address and add the agg_inter_distance on top -> this is the
         //   row of the next aggressor
         // if use_seq_addresses is false, we just pick any random row no. between [0, 8192]
-        cur_row = (cur_row + (size_t) fuzzing_params.get_agg_inter_distance())%fuzzing_params.get_max_row_no();
+        cur_row = remapping((remapping(cur_row) + (size_t) fuzzing_params.get_agg_inter_distance()))%fuzzing_params.get_max_row_no();
 
         bool map_to_existing_agg = dist(engine);
         if (map_to_existing_agg && !occupied_rows.empty()) {
@@ -131,7 +139,7 @@ void PatternAddressMapper::randomize_addresses(FuzzingParameterSet &fuzzing_para
   }
 
   // determine victim rows
-  determine_victims(agg_access_patterns);
+  // determine_victims(agg_access_patterns);
 
   // this works as sets are always ordered
   min_row = *occupied_rows.begin();
@@ -174,13 +182,14 @@ void PatternAddressMapper::determine_victims(const std::vector<AggressorAccessPa
   }
 }
 
-void PatternAddressMapper::export_pattern_internal(
+void PatternAddressMapper::export_pattern_internal( // aggressors to addresses
     std::vector<Aggressor> &aggressors, int base_period,
     std::vector<volatile char *> &addresses,
     std::vector<int> &rows) {
 
   bool invalid_aggs = false;
   std::stringstream pattern_str;
+  volatile char *vaddr;
   for (size_t i = 0; i < aggressors.size(); ++i) {
     // for better visualization: add linebreak after each base period
     if (i!=0 && (i%base_period)==0) {
@@ -202,7 +211,17 @@ void PatternAddressMapper::export_pattern_internal(
     }
 
     // retrieve virtual address of current aggressor in pattern and add it to output vector
-    addresses.push_back((volatile char *) aggressor_to_addr.at(agg.id).to_virt());
+    // vaddr = aggressor_to_addr.at(agg.id).phys_2_virt(aggressor_to_addr.at(agg.id).to_virt());
+    // if(vaddr == ((char*) -1)) continue;
+    vaddr = (volatile char *) aggressor_to_addr.at(agg.id).to_virt();
+    
+    // if(vaddr == ((volatile char*) -1)){
+    //   fprintf(stderr, "there is no address\n");
+    //   continue;
+    // } 
+    // fprintf(stderr, "vaddr: %p, row: %d\n", vaddr, static_cast<int>(aggressor_to_addr.at(agg.id).row));
+    addresses.push_back(vaddr);
+    // addresses.push_back((volatile char *) aggressor_to_addr.at(agg.id).to_virt());
     rows.push_back(static_cast<int>(aggressor_to_addr.at(agg.id).row));
     pattern_str << aggressor_to_addr.at(agg.id).row << " ";
   }
@@ -309,10 +328,15 @@ const std::unordered_set<volatile char *> &PatternAddressMapper::get_victim_rows
 std::vector<volatile char *> PatternAddressMapper::get_random_nonaccessed_rows(int row_upper_bound) {
   // we don't mind if addresses are added multiple times
   std::vector<volatile char *> addresses;
+  volatile char *vaddr;
   for (int i = 0; i < 1024; ++i) {
     auto row_no = Range<int>(max_row, max_row + min_row).get_random_number(gen)%row_upper_bound;
-    addresses.push_back(
-        static_cast<volatile char*>(DRAMAddr(static_cast<size_t>(bank_no), static_cast<size_t>(row_no), 0).to_virt()));
+    vaddr = static_cast<volatile char*>(DRAMAddr(static_cast<size_t>(bank_no), static_cast<size_t>(row_no), 0).to_virt());
+    // fprintf(stderr, "address: %p\n", vaddr);
+    if(vaddr == ((volatile char*) -1)) continue;
+    addresses.push_back(vaddr);
+    // addresses.push_back(
+    //     static_cast<volatile char*>(DRAMAddr(static_cast<size_t>(bank_no), static_cast<size_t>(row_no), 0).to_virt()));
   }
   return addresses;
 }

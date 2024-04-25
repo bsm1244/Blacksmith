@@ -2,19 +2,24 @@
 
 #include "Utilities/TimeHelper.hpp"
 #include "Blacksmith.hpp"
+#include <ctime>
+#include <assert.h>
 
 /// Performs hammering on given aggressor rows for HAMMER_ROUNDS times.
 void TraditionalHammerer::hammer(std::vector<volatile char *> &aggressors) {
+  fprintf(stderr, "here\n");
   hammer(aggressors, HAMMER_ROUNDS);
+  // hammer_flush_early(aggressors, HAMMER_ROUNDS);
 }
 
 void TraditionalHammerer::hammer(std::vector<volatile char *> &aggressors, size_t reps) {
   for (size_t i = 0; i < reps; i++) {
     for (auto &a : aggressors) {
-      (void)*a;
+      // clflushopt(a);
+      clflush(a);
     }
     for (auto &a : aggressors) {
-      clflushopt(a);
+      (void)*a;
     }
     mfence();
   }
@@ -24,28 +29,42 @@ void TraditionalHammerer::hammer_flush_early(std::vector<volatile char *> &aggre
   for (size_t i = 0; i < reps; i++) {
     for (auto &a : aggressors) {
       (void)*a;
-      clflushopt(a);
+      // clflushopt(a);
+      clflush(a);
     }
     mfence();
   }
 }
 
 /// Performs synchronized hammering on the given aggressor rows.
-void TraditionalHammerer::hammer_sync(std::vector<volatile char *> &aggressors, int acts,
+void TraditionalHammerer::hammer_sync2(std::vector<volatile char *> &aggressors, int acts,
                                       volatile char *d1, volatile char *d2) {
-  size_t ref_rounds = std::max(1UL, acts/aggressors.size());
-
+  size_t ref_rounds = 0;
+  ref_rounds = std::max(1UL, acts/(aggressors.size()/2));
+  // fprintf(stderr, "acts: %d, aggressors size: %ld, ref_rounds: %ld\n", acts, aggressors.size(), acts/aggressors.size());
   // determines how often we are repeating
   size_t agg_rounds = ref_rounds;
   uint64_t before, after;
+  size_t rounds = 0;
 
+  // For perf
+  // int perf_ctl_fd = 10;
+  // int perf_ctl_ack_fd = 11;
+  // char ack[5];
+
+  for (size_t k = 0; k < aggressors.size() - 2; k++) {
+    clflush(aggressors[k]);
+  }
+  
   (void)*d1;
   (void)*d2;
 
   // synchronize with the beginning of an interval
   while (true) {
-    clflushopt(d1);
-    clflushopt(d2);
+    // clflushopt(d1);
+    // clflushopt(d2);
+    clflush(d1);
+    clflush(d2);
     mfence();
     before = rdtscp();
     lfence();
@@ -53,18 +72,38 @@ void TraditionalHammerer::hammer_sync(std::vector<volatile char *> &aggressors, 
     (void)*d2;
     after = rdtscp();
     // check if an ACTIVATE was issued
-    if ((after - before) > 1000) {
+    if ((after - before) > 900) {
       break;
     }
   }
 
+  // write(perf_ctl_fd, "enable\n", 8);
+  // read(perf_ctl_ack_fd, ack, 5);
+  // assert(strcmp(ack, "ack\n") == 0);
+  // before = rdtscp();
+  // lfence();
+
+  // if (aggressors.size() == 0) rounds = 0;
+  // else rounds = HAMMER_ROUNDS/aggressors.size()/agg_rounds;
+
+  rounds = HAMMER_ROUNDS/agg_rounds;
+  // fprintf(stderr, "%ld, %ld, %ld\n", rounds, agg_rounds, aggressors.size());
   // perform hammering for HAMMER_ROUNDS/ref_rounds times
-  for (size_t i = 0; i < HAMMER_ROUNDS/ref_rounds; i++) {
+  // for (size_t i = 0; i < HAMMER_ROUNDS/ref_rounds; i++) {
+  for (size_t i = 0; i < rounds/2; i++) {
     for (size_t j = 0; j < agg_rounds; j++) {
-      for (size_t k = 0; k < aggressors.size() - 2; k++) {
-        (void)(*aggressors[k]);
-        clflushopt(aggressors[k]);
+      // for (size_t k = 0; k < aggressors.size() - 2; k++) {
+      //   (void)(*aggressors[k]);
+      //   // clflushopt(aggressors[k]);
+      //   clflush(aggressors[k]);
+      // }
+      for (size_t k = 0; k < aggressors.size() / 2 - 1; k++) {
+        clflush(aggressors[k]);
       }
+      for (size_t k = 0; k < aggressors.size() / 2 - 1; k++) {
+        (void)(*aggressors[k]);
+      }
+
       mfence();
     }
 
@@ -74,14 +113,212 @@ void TraditionalHammerer::hammer_sync(std::vector<volatile char *> &aggressors, 
       lfence();
       before = rdtscp();
       lfence();
-      clflushopt(d1);
+      // clflushopt(d1);
+      clflush(d1);
       (void)*d1;
-      clflushopt(d2);
+      // clflushopt(d2);
+      clflush(d2);
       (void)*d2;
       after = rdtscp();
       lfence();
       // stop if an ACTIVATE was issued
-      if ((after - before) > 1000) break;
+      if ((after - before) > 900) break;
+    }
+  }
+
+  for (size_t i = 0; i < rounds/2; i++) {
+    for (size_t j = 0; j < agg_rounds; j++) {
+      // for (size_t k = 0; k < aggressors.size() - 2; k++) {
+      //   (void)(*aggressors[k]);
+      //   // clflushopt(aggressors[k]);
+      //   clflush(aggressors[k]);
+      // }
+      for (size_t k = aggressors.size() / 2 - 1; k < aggressors.size() - 2; k++) {
+        clflush(aggressors[k]);
+      }
+      for (size_t k = aggressors.size() / 2 - 1; k < aggressors.size() - 2; k++) {
+        (void)(*aggressors[k]);
+      }
+
+      mfence();
+    }
+
+    // after HAMMER_ROUNDS/ref_rounds times hammering, check for next ACTIVATE
+    while (true) {
+      mfence();
+      lfence();
+      before = rdtscp();
+      lfence();
+      // clflushopt(d1);
+      clflush(d1);
+      (void)*d1;
+      // clflushopt(d2);
+      clflush(d2);
+      (void)*d2;
+      after = rdtscp();
+      lfence();
+      // stop if an ACTIVATE was issued
+      if ((after - before) > 900) break;
+    }
+  }
+  // after = rdtscp();
+  // fprintf(stderr, "cpu_cycle: %ld\n", after - before);
+  // write(perf_ctl_fd, "disable\n", 9);
+  // read(perf_ctl_ack_fd, ack, 5);
+  // assert(strcmp(ack, "ack\n") == 0);
+}
+
+void TraditionalHammerer::hammer_sync1(std::vector<volatile char *> &aggressors, int acts,
+                                      volatile char *d1, volatile char *d2) {
+  size_t ref_rounds = 0;
+  ref_rounds = std::max(1UL, acts/aggressors.size());
+  // fprintf(stderr, "acts: %d, aggressors size: %ld, ref_rounds: %ld\n", acts, aggressors.size(), acts/aggressors.size());
+  // determines how often we are repeating
+  size_t agg_rounds = ref_rounds;
+  uint64_t before, after;
+  size_t rounds = 0;
+
+  // For perf
+  // int perf_ctl_fd = 10;
+  // int perf_ctl_ack_fd = 11;
+  // char ack[5];
+
+  for (size_t k = 0; k < aggressors.size() - 2; k++) {
+    clflush(aggressors[k]);
+  }
+  
+  (void)*d1;
+  (void)*d2;
+
+  // synchronize with the beginning of an interval
+  while (true) {
+    // clflushopt(d1);
+    // clflushopt(d2);
+    clflush(d1);
+    clflush(d2);
+    mfence();
+    before = rdtscp();
+    lfence();
+    (void)*d1;
+    (void)*d2;
+    after = rdtscp();
+    // check if an ACTIVATE was issued
+    if ((after - before) > 900) {
+      break;
+    }
+  }
+
+  // write(perf_ctl_fd, "enable\n", 8);
+  // read(perf_ctl_ack_fd, ack, 5);
+  // assert(strcmp(ack, "ack\n") == 0);
+  // before = rdtscp();
+  // lfence();
+
+  // if (aggressors.size() == 0) rounds = 0;
+  // else rounds = HAMMER_ROUNDS/aggressors.size()/agg_rounds;
+
+  rounds = HAMMER_ROUNDS/agg_rounds;
+  // fprintf(stderr, "%ld, %ld, %ld\n", rounds, agg_rounds, aggressors.size());
+
+  // perform hammering for HAMMER_ROUNDS/ref_rounds times
+  // for (size_t i = 0; i < HAMMER_ROUNDS/ref_rounds; i++) {
+  for (size_t i = 0; i < rounds; i++) {
+    for (size_t j = 0; j < agg_rounds; j++) {
+      // for (size_t k = 0; k < aggressors.size() - 2; k++) {
+      //   (void)(*aggressors[k]);
+      //   // clflushopt(aggressors[k]);
+      //   clflush(aggressors[k]);
+      // }
+      for (size_t k = 0; k < aggressors.size() - 2; k++) {
+        clflush(aggressors[k]);
+      }
+      for (size_t k = 0; k < aggressors.size() - 2; k++) {
+        (void)(*aggressors[k]);
+      }
+
+      mfence();
+    }
+  
+    // after HAMMER_ROUNDS/ref_rounds times hammering, check for next ACTIVATE
+    while (true) {
+      mfence();
+      lfence();
+      before = rdtscp();
+      lfence();
+      clflush(d1);
+      (void)*d1;
+      clflush(d2);
+      (void)*d2;
+      after = rdtscp();
+      lfence();
+      // stop if an ACTIVATE was issued
+      if ((after - before) > 900) break;
+    }
+  }
+}
+
+void TraditionalHammerer::hammer_sync3(std::vector<volatile char *> &aggressors, int acts,
+                                      volatile char *d1, volatile char *d2, int hammer_cnt) {
+  size_t ref_rounds = 0;
+  ref_rounds = std::max(1UL, acts/aggressors.size());
+  // determines how often we are repeating
+  size_t agg_rounds = ref_rounds;
+  uint64_t before, after;
+  size_t rounds = 0;
+
+  for (size_t k = 0; k < aggressors.size() - 2; k++) {
+    clflush(aggressors[k]);
+  }
+  
+  (void)*d1;
+  (void)*d2;
+
+  // synchronize with the beginning of an interval
+  while (true) {
+    clflush(d1);
+    clflush(d2);
+    mfence();
+    before = rdtscp();
+    lfence();
+    (void)*d1;
+    (void)*d2;
+    after = rdtscp();
+    // check if an ACTIVATE was issued
+    if ((after - before) > 900) {
+      break;
+    }
+  }
+
+  rounds = hammer_cnt/agg_rounds;
+
+  for (size_t i = 0; i < rounds; i++) {
+    for (size_t j = 0; j < agg_rounds; j++) {
+      for (size_t k = 0; k < aggressors.size() - 2; k++) {
+        clflush(aggressors[k]);
+      }
+      for (size_t k = 0; k < aggressors.size() - 2; k++) {
+        (void)(*aggressors[k]);
+      }
+
+      mfence();
+    }
+  
+    // after HAMMER_ROUNDS/ref_rounds times hammering, check for next ACTIVATE
+    while (true) {
+      mfence();
+      lfence();
+      before = rdtscp();
+      lfence();
+      // clflushopt(d1);
+      clflush(d1);
+      (void)*d1;
+      // clflushopt(d2);
+      clflush(d2);
+      (void)*d2;
+      after = rdtscp();
+      lfence();
+      // stop if an ACTIVATE was issued
+      if ((after - before) > 900) break;
     }
   }
 }
@@ -195,7 +432,7 @@ void TraditionalHammerer::hammer_sync(std::vector<volatile char *> &aggressors, 
                   d2.row, d2.to_virt()));
 
           Logger::log_info(format_string("Hammering sync %d aggressors on bank %d", num_aggs, TARGET_BANK));
-          hammer_sync(aggressors, acts, (volatile char *) d1.to_virt(), (volatile char *) d2.to_virt());
+          hammer_sync1(aggressors, acts, (volatile char *) d1.to_virt(), (volatile char *) d2.to_virt());
         }
 
         // check 20 rows before and after the placed aggressors for flipped bits
@@ -252,18 +489,30 @@ void TraditionalHammerer::hammer_sync(std::vector<volatile char *> &aggressors, 
 }
 
 [[maybe_unused]] void TraditionalHammerer::n_sided_hammer(Memory &memory, int acts, long runtime_limit) {
+  Logger::log_info("Traditional Hammering start!");
   std::random_device rd;
   std::mt19937 gen(rd());
   std::uniform_int_distribution<size_t> dist(0, std::numeric_limits<size_t>::max());
+  
+  time_t timer;
+  struct tm *t;
 
   const auto execution_limit = get_timestamp_sec() + runtime_limit;
+
   while (get_timestamp_sec() < execution_limit) {
+    timer = time(NULL);
+    t = localtime(&timer);
+
     size_t aggressor_rows_size = (dist(gen)%(MAX_ROWS - 3)) + 3;  // number of aggressor rows
+
     size_t v = 2;  // distance between aggressors (within a pair)
-    size_t d = dist(gen)%16;  // distance of each double-sided aggressor pair
+    // size_t d = dist(gen)%16;  // distance of each double-sided aggressor pair
+    size_t d = 2;
 
     for (size_t ba = 0; ba < 4; ba++) {
-      DRAMAddr cur_next_addr(ba, dist(gen)%4096, 0);
+      Logger::log_info(
+          format_string("Current time: %dh-%dm-%ds.",t->tm_hour, t->tm_min, t->tm_sec));
+      DRAMAddr cur_next_addr(ba, dist(gen)%131072, 0);
 
       std::vector<volatile char *> aggressors;
       std::stringstream ss;
@@ -285,6 +534,12 @@ void TraditionalHammerer::hammer_sync(std::vector<volatile char *> &aggressors, 
       }
       Logger::log_data(ss.str());
 
+      Logger::log_info("Aggressors' VAs");
+      for(auto aggr : aggressors){
+        Logger::log_info(
+          format_string("%lx",(size_t)aggr));
+      }
+
       if (!program_args.use_synchronization) {
         // CONVENTIONAL HAMMERING
         Logger::log_info(format_string("Hammering %d aggressors with v=%d d=%d on bank %d",
@@ -299,17 +554,337 @@ void TraditionalHammerer::hammer_sync(std::vector<volatile char *> &aggressors, 
         auto d2 = cur_next_addr;
         Logger::log_info(format_string("d1 row %" PRIu64 " (%p) d2 row %" PRIu64 " (%p)",
             d1.row, d1.to_virt(), d2.row, d2.to_virt()));
-        if (ba==0) {
-          Logger::log_info(format_string("sync: ref_rounds %lu, remainder %lu.", acts/aggressors.size(),
-              acts - ((acts/aggressors.size())*aggressors.size())));
-        }
+        // if (ba==0) {
+        //   Logger::log_info(format_string("sync: ref_rounds %lu, remainder %lu.", acts/aggressors.size(),
+        //       acts - ((acts/aggressors.size())*aggressors.size())));
+        // }
         Logger::log_info(format_string("Hammering sync %d aggressors on bank %d", aggressor_rows_size, ba));
-        hammer_sync(aggressors, acts, (volatile char *) d1.to_virt(), (volatile char *) d2.to_virt());
+        hammer_sync1(aggressors, acts, (volatile char *) d1.to_virt(), (volatile char *) d2.to_virt());
       }
 
       // check 100 rows before and after for flipped bits
-      memory.check_memory(aggressors[0], aggressors[aggressors.size() - 1]);
+      // memory.check_memory(aggressors[0], aggressors[aggressors.size() - 1]);
+
+      // check allocated memory area to find coupled row
+      memory.check_memory_sb((const volatile char *) 0x10000000000, (const volatile char *) 0x10600000000, ba);
     }
+  }
+}
+
+[[maybe_unused]] void TraditionalHammerer::n_sided_hammer_coupled_row(Memory &memory, int acts, long runtime_limit, int mode, int num_rows) {
+  Logger::log_info("Traditional Hammering start!");
+  std::random_device rd;
+  std::mt19937 gen(rd());
+  std::uniform_int_distribution<size_t> dist(0, std::numeric_limits<size_t>::max());
+  fprintf(stderr, "acts: %d, mode: %d, num_rows: %d\n", acts, mode, num_rows);
+  time_t timer;
+  struct tm *t;
+
+  size_t n = 0; // repeat attacks
+  size_t row_offset = num_rows;
+
+  Logger::log_info(format_string("mode: %d",mode));
+
+  const auto execution_limit = get_timestamp_sec() + runtime_limit;
+  while (get_timestamp_sec() < execution_limit) {
+    
+    timer = time(NULL);
+    t = localtime(&timer);
+
+    size_t aggressor_rows_size = 0;
+    if(mode == 3) aggressor_rows_size = 12;
+    else if(mode == 6) aggressor_rows_size = 24;
+    // if(mode == 0 || mode == 3 || mode == 4) aggressor_rows_size = n % (40/2 - row_offset) + row_offset;
+    // else aggressor_rows_size = n % (40 - row_offset) + row_offset;
+
+    size_t v = 2;  // distance between aggressors (within a pair)
+    size_t d = 2;
+
+    // if((n / (40 - row_offset) > 50) && (mode == 6)) break;
+    // else if ((n / (40/2 - row_offset) > 50) && (mode == 3)) break;
+    if(n >= 128) break;
+
+    for (size_t ba = 0; ba < 1; ba++) {
+      Logger::log_info(
+          format_string("Current time: %dh-%dm-%ds.",t->tm_hour, t->tm_min, t->tm_sec));
+
+      size_t base_addr = 0;
+      // if(mode == 0 || mode == 3) base_addr = 39330 + n / (40/2 - row_offset) * 20;
+      // else if(mode == 4) base_addr = 39330 + 65536 + n / (40/2 - row_offset) * 20;
+      // else base_addr = 39330 + n / (40 - row_offset) * 20;
+      base_addr = 39330 + n * 12;
+
+      // size_t base_addr = 104866-65536; // s17
+      // size_t base_addr = 108684; // s16
+      DRAMAddr cur_next_addr(ba, base_addr, 0);
+
+      // DRAMAddr kernel_code((size_t) (16384*n % 0x37fffff) + 0x253c00000);
+      // DRAMAddr kernel_code((size_t) (32768*n % 0x1246fff) + 0x378600000);
+      // DRAMAddr cur_next_addr((void*) kernel_code.to_virt());
+
+      std::vector<volatile char *> aggressors;
+      std::vector<volatile char *> aggressors_PA;
+      std::stringstream ss;
+
+      ss << "agg row: ";
+
+      if(mode == 0){
+        for (size_t i = 0; i < aggressor_rows_size; i += 2) {
+          cur_next_addr.add_inplace(0, d, 0);
+          ss << cur_next_addr.row << " ";
+          aggressors.push_back((volatile char *) cur_next_addr.to_virt());
+          aggressors_PA.push_back((volatile char *) cur_next_addr.to_phys());
+
+          cur_next_addr.add_inplace(0, v, 0);
+          ss << cur_next_addr.row << " ";
+          aggressors.push_back((volatile char *) cur_next_addr.to_virt());
+          aggressors_PA.push_back((volatile char *) cur_next_addr.to_phys());
+        }
+      }
+
+      else if (mode == 1 || mode == 2){
+        for (size_t i = 0; i < aggressor_rows_size / 2; i += 2) {
+          cur_next_addr.add_inplace(0, d, 0);
+          ss << cur_next_addr.row << " ";
+          aggressors.push_back((volatile char *) cur_next_addr.to_virt());
+          aggressors_PA.push_back((volatile char *) cur_next_addr.to_phys());
+
+          cur_next_addr.add_inplace(0, v, 0);
+          ss << cur_next_addr.row << " ";
+          aggressors.push_back((volatile char *) cur_next_addr.to_virt());
+          aggressors_PA.push_back((volatile char *) cur_next_addr.to_phys());
+        }
+
+        DRAMAddr cur_next_addr2(ba, (base_addr + 65536) % 131072, 0);
+
+        for (size_t i = aggressor_rows_size / 2; i < aggressor_rows_size; i += 2) {
+          cur_next_addr2.add_inplace(0, d, 0);
+          ss << cur_next_addr2.row << " ";
+          aggressors.push_back((volatile char *) cur_next_addr2.to_virt());
+          aggressors_PA.push_back((volatile char *) cur_next_addr2.to_phys());
+
+          cur_next_addr2.add_inplace(0, v, 0);
+          ss << cur_next_addr2.row << " ";
+          aggressors.push_back((volatile char *) cur_next_addr2.to_virt());
+          aggressors_PA.push_back((volatile char *) cur_next_addr2.to_phys());
+        }
+      }
+      else if (mode == 3 || mode == 4){
+        cur_next_addr.add_inplace(0, 2, 0);
+        ss << cur_next_addr.row << " ";
+        aggressors.push_back((volatile char *) cur_next_addr.to_virt());
+        aggressors_PA.push_back((volatile char *) cur_next_addr.to_phys());
+
+        cur_next_addr.add_inplace(0, 2, 0);
+        ss << cur_next_addr.row << " ";
+        aggressors.push_back((volatile char *) cur_next_addr.to_virt());
+        aggressors_PA.push_back((volatile char *) cur_next_addr.to_phys());
+
+        for (size_t i = 2; i < aggressor_rows_size; i++) {
+          cur_next_addr.add_inplace(0, 2, 0);
+          ss << cur_next_addr.row << " ";
+          aggressors.push_back((volatile char *) cur_next_addr.to_virt());
+          aggressors_PA.push_back((volatile char *) cur_next_addr.to_phys());
+        }
+      }
+      else{
+        cur_next_addr.add_inplace(0, 2, 0);
+        ss << cur_next_addr.row << " ";
+        aggressors.push_back((volatile char *) cur_next_addr.to_virt());
+        aggressors_PA.push_back((volatile char *) cur_next_addr.to_phys());
+
+        cur_next_addr.add_inplace(0, 2, 0);
+        ss << cur_next_addr.row << " ";
+        aggressors.push_back((volatile char *) cur_next_addr.to_virt());
+        aggressors_PA.push_back((volatile char *) cur_next_addr.to_phys());
+
+        for (size_t i = 4; i < aggressor_rows_size / 2 + 2; i++) {
+          cur_next_addr.add_inplace(0, 2, 0);
+          ss << cur_next_addr.row << " ";
+          aggressors.push_back((volatile char *) cur_next_addr.to_virt());
+          aggressors_PA.push_back((volatile char *) cur_next_addr.to_phys());
+        }
+
+        DRAMAddr cur_next_addr2(ba, (base_addr + 65536) % 131072, 0);
+
+        cur_next_addr2.add_inplace(0, 2, 0);
+        ss << cur_next_addr2.row << " ";
+        aggressors.push_back((volatile char *) cur_next_addr2.to_virt());
+        aggressors_PA.push_back((volatile char *) cur_next_addr2.to_phys());
+
+        cur_next_addr2.add_inplace(0, 2, 0);
+        ss << cur_next_addr2.row << " ";
+        aggressors.push_back((volatile char *) cur_next_addr2.to_virt());
+        aggressors_PA.push_back((volatile char *) cur_next_addr2.to_phys());
+
+        for (size_t i = aggressor_rows_size / 2 + 2; i < aggressor_rows_size; i++) {
+          cur_next_addr2.add_inplace(0, 2, 0);
+          ss << cur_next_addr2.row << " ";
+          aggressors.push_back((volatile char *) cur_next_addr2.to_virt());
+          aggressors_PA.push_back((volatile char *) cur_next_addr2.to_phys());
+        }
+      }
+
+      Logger::log_data(ss.str());
+
+      Logger::log_info("Aggressors' VAs and PAs");
+      for(size_t i = 0; i < aggressors.size(); i++){
+        Logger::log_info(
+          format_string("%lx, %lx",(size_t)aggressors[i], aggressors_PA[i]));
+      }
+
+      if (!program_args.use_synchronization) {
+        // CONVENTIONAL HAMMERING
+        Logger::log_info(format_string("Hammering %d aggressors with v=%d d=%d on bank %d",
+            aggressor_rows_size, v, d, ba));
+        hammer(aggressors);
+      } else if (program_args.use_synchronization) {
+        // SYNCHRONIZED HAMMERING
+        // uses two dummies that are hammered repeatedly until the refresh is detected
+        cur_next_addr.add_inplace(0, 100, 0);
+        auto d1 = cur_next_addr;
+        cur_next_addr.add_inplace(0, v, 0);
+        auto d2 = cur_next_addr;
+        Logger::log_info(format_string("d1 row %" PRIu64 " (%p) d2 row %" PRIu64 " (%p)",
+            d1.row, d1.to_virt(), d2.row, d2.to_virt()));
+        // if (ba==0) {
+        //   Logger::log_info(format_string("sync: ref_rounds %lu, remainder %lu.", acts/aggressors.size(),
+        //       acts - ((acts/aggressors.size())*aggressors.size())));
+        // }
+        // Logger::log_info(format_string("Hammering sync %d aggressors on bank %d", aggressor_rows_size, ba));
+        // if(mode == 2 || mode == 5) hammer_sync2(aggressors, acts, (volatile char *) d1.to_virt(), (volatile char *) d2.to_virt());
+        // else hammer_sync1(aggressors, acts, (volatile char *) d1.to_virt(), (volatile char *) d2.to_virt());
+        hammer_sync1(aggressors, acts, (volatile char *) d1.to_virt(), (volatile char *) d2.to_virt());
+      }
+
+      // check 100 rows before and after for flipped bits
+      // memory.check_memory(aggressors[0], aggressors[aggressors.size() - 1]);
+
+      // check allocated memory area to find coupled row
+      // size_t num_err = memory.check_memory_sb((const volatile char *) 0x10000000000, (const volatile char *) 0x10300000000, ba); // s16
+      size_t num_err = memory.check_memory_sb((const volatile char *) 0x10000000000, (const volatile char *) 0x10600000000, ba); // s17
+      Logger::log_info(format_string("Aggressor rows size: %ld, # of bitflips: %ld", aggressor_rows_size, num_err));
+    }
+    if(mode == 0 || mode == 3 || mode == 4) n += 1;
+    else n += 2;
+    // break;
+  }
+}
+
+[[maybe_unused]] void TraditionalHammerer::n_sided_hammer_HCfirst(Memory &memory, int acts, long runtime_limit, int mode, int hammer_cnt) {
+  Logger::log_info("Traditional Hammering start!");
+  std::random_device rd;
+  std::mt19937 gen(rd());
+  std::uniform_int_distribution<size_t> dist(0, std::numeric_limits<size_t>::max());
+  fprintf(stderr, "acts: %d, mode: %d\n", acts, mode);
+  time_t timer;
+  struct tm *t;
+
+  size_t n = 0; // repeat attacks
+
+  Logger::log_info(format_string("mode: %d",mode));
+
+  const auto execution_limit = get_timestamp_sec() + runtime_limit;
+  while (get_timestamp_sec() < execution_limit) {
+    
+    timer = time(NULL);
+    t = localtime(&timer);
+
+    size_t aggressor_rows_size = 0;
+    if(mode == 0 || mode == 3 || mode == 4) aggressor_rows_size = 12;
+    else aggressor_rows_size = 24;
+
+    size_t v = 2;  // distance between aggressors (within a pair)
+    size_t d = 2;
+
+    for (size_t ba = 0; ba < 1; ba++) {
+      Logger::log_info(
+          format_string("Current time: %dh-%dm-%ds.",t->tm_hour, t->tm_min, t->tm_sec));
+
+      size_t base_addr = 0;
+
+      if(mode == 4) base_addr = 39330 + 65536 + 12 * n;
+      else base_addr = 39330 + 12 * n;
+
+      DRAMAddr cur_next_addr(ba, base_addr, 0);
+
+      std::vector<volatile char *> aggressors;
+      std::vector<volatile char *> aggressors_PA;
+      std::stringstream ss;
+
+      ss << "agg row: ";
+
+      if(mode == 0){
+        for (size_t i = 0; i < aggressor_rows_size; i ++) {
+          cur_next_addr.add_inplace(0, d, 0);
+          ss << cur_next_addr.row << " ";
+          aggressors.push_back((volatile char *) cur_next_addr.to_virt());
+          aggressors_PA.push_back((volatile char *) cur_next_addr.to_phys());
+        }
+      }
+
+      else if (mode == 1){
+        for (size_t i = 0; i < aggressor_rows_size / 2; i ++) {
+          cur_next_addr.add_inplace(0, d, 0);
+          ss << cur_next_addr.row << " ";
+          aggressors.push_back((volatile char *) cur_next_addr.to_virt());
+          aggressors_PA.push_back((volatile char *) cur_next_addr.to_phys());
+        }
+
+        DRAMAddr cur_next_addr2(ba, (base_addr + 65536) % 131072, 0);
+
+        for (size_t i = aggressor_rows_size / 2; i < aggressor_rows_size; i ++) {
+          cur_next_addr2.add_inplace(0, d, 0);
+          ss << cur_next_addr2.row << " ";
+          aggressors.push_back((volatile char *) cur_next_addr2.to_virt());
+          aggressors_PA.push_back((volatile char *) cur_next_addr2.to_phys());
+        }
+      }
+
+      Logger::log_data(ss.str());
+
+      Logger::log_info("Aggressors' VAs and PAs");
+      for(size_t i = 0; i < aggressors.size(); i++){
+        Logger::log_info(
+          format_string("%lx, %lx",(size_t)aggressors[i], aggressors_PA[i]));
+      }
+
+      if (!program_args.use_synchronization) {
+        // CONVENTIONAL HAMMERING
+        Logger::log_info(format_string("Hammering %d aggressors with v=%d d=%d on bank %d",
+            aggressor_rows_size, v, d, ba));
+        hammer(aggressors);
+      } else if (program_args.use_synchronization) {
+        // SYNCHRONIZED HAMMERING
+        // uses two dummies that are hammered repeatedly until the refresh is detected
+        cur_next_addr.add_inplace(0, 100, 0);
+        auto d1 = cur_next_addr;
+        cur_next_addr.add_inplace(0, v, 0);
+        auto d2 = cur_next_addr;
+
+        hammer_sync3(aggressors, acts, (volatile char *) d1.to_virt(), (volatile char *) d2.to_virt(), hammer_cnt);
+      }
+
+      // check 100 rows before and after for flipped bits
+      // memory.check_memory(aggressors[0], aggressors[aggressors.size() - 1]);
+
+      // check allocated memory area to find coupled row
+      // size_t num_err = memory.check_memory_sb((const volatile char *) 0x10000000000, (const volatile char *) 0x10300000000, ba); // s16
+      size_t num_err = memory.check_memory_sb((const volatile char *) 0x10000000000, (const volatile char *) 0x10600000000, ba); // s17
+      Logger::log_info(format_string("Aggressor rows size: %ld, # of bitflips: %ld, hammer count: %d", aggressor_rows_size, num_err, hammer_cnt));
+      if(num_err){
+        fprintf(stderr, "HCfirst: %d\n", hammer_cnt);
+        hammer_cnt = 1000;
+        n++;
+      }
+      else if(hammer_cnt > 1280000){
+        fprintf(stderr, "No error\n");
+        hammer_cnt = 1000;
+        n++;
+      }
+      else hammer_cnt *= 1.1;
+    }
+    if(n > 128) return;
   }
 }
 

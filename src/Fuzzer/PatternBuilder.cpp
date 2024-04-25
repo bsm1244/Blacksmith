@@ -147,7 +147,7 @@ void PatternBuilder::generate_frequency_based_pattern(FuzzingParameterSet &param
   std::vector<int> allowed_multiplicators = get_available_multiplicators(params);
   pattern.max_period = allowed_multiplicators.back()*base_period;
 
-  int cur_amplitude;
+  int cur_amplitude; // need to edit here (by bsm)
   int num_aggressors;
   auto cur_period = 0;
 

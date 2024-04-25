@@ -106,7 +106,8 @@ void FuzzingParameterSet::randomize_parameters(bool print) {
   // [derivable from aggressors in AggressorAccessPattern]
   // note that in PatternBuilder::generate also uses 1-sided aggressors in case that the end of a base period needs to
   // be filled up
-  N_sided = Range<int>(1, 2);
+  // N_sided = Range<int>(1, 2);
+  N_sided = Range<int>(2, 2);
 
   // [exported as part of AggressorAccessPattern]
   // choosing as max 'num_activations_per_tREFI/N_sided.min' allows hammering an agg pair for a whole REF interval;
@@ -130,7 +131,8 @@ void FuzzingParameterSet::randomize_parameters(bool print) {
   num_aggressors_for_sync = Range<int>(2, 2);
 
   // [derivable from aggressor_to_addr (DRAMAddr) in PatternAddressMapper]
-  start_row = Range<int>(0, 2048);
+  // start_row = Range<int>(0, 2048);
+  start_row = Range<int>(0, 65536);
 
   // █████████ STATIC FUZZING PARAMETERS ████████████████████████████████████████████████████
   // fix values/formulas that must be configured before running this program
@@ -157,14 +159,16 @@ void FuzzingParameterSet::randomize_parameters(bool print) {
   //    num_activations_per_tREFI ≈100                       => 8k * 100 ≈ 8M activations and we hammer for 5M acts.
   hammering_total_num_activations = 5000000;
 
-  max_row_no = 8192;
+  // max_row_no = 8192;
+  max_row_no = 131072;
 
   // █████████ SEMI-DYNAMIC FUZZING PARAMETERS ████████████████████████████████████████████████████
   // are only randomized once when calling this function
 
   // [derivable from aggressors in AggressorAccessPattern, also not very expressive because different agg IDs can be
   // mapped to the same DRAM address]
-  num_aggressors = Range<int>(8, 96).get_random_number(gen);
+  // num_aggressors = Range<int>(8, 96).get_random_number(gen);
+  num_aggressors = Range<int>(48, 96).get_random_number(gen);
 
   // [included in HammeringPattern]
   // it is important that this is a power of two, otherwise the aggressors in the pattern will not respect frequencies
@@ -174,10 +178,12 @@ void FuzzingParameterSet::randomize_parameters(bool print) {
   total_acts_pattern = num_activations_per_tREFI*num_refresh_intervals;
 
   // [included in HammeringPattern]
-  base_period = get_random_even_divisior(total_acts_pattern, 4);
+  // base_period = get_random_even_divisior(total_acts_pattern, 4);
+  base_period = get_random_even_divisior(total_acts_pattern, 40);
 
   // [derivable from aggressor_to_addr (DRAMAddr) in PatternAddressMapper]
-  agg_inter_distance = Range<int>(1, 24).get_random_number(gen);
+  // agg_inter_distance = Range<int>(1, 24).get_random_number(gen);
+  agg_inter_distance = Range<int>(2, 24).get_random_number(gen);
   
   if (print) print_semi_dynamic_parameters();
 }
@@ -212,8 +218,10 @@ int FuzzingParameterSet::get_random_N_sided() {
 
 int FuzzingParameterSet::get_random_N_sided(int upper_bound_max) {
   if (N_sided.max > upper_bound_max) {
+    // printf("here\n");
     return Range<int>(N_sided.min, upper_bound_max).get_random_number(gen);
   }
+  // printf("here2\n");
   return get_random_N_sided();
 }
 

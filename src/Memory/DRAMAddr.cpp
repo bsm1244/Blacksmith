@@ -1,8 +1,208 @@
 #include "Memory/DRAMAddr.hpp"
 #include "GlobalDefines.hpp"
+#include "Utilities/Range.hpp"
+
+#define NOT_FOUND ((void*) -1)
+
+size_t remaps[16] = {0,1,2,3,4,5,6,7,14,15,12,13,10,11,8,9};
+
+size_t remappings(size_t row){
+  if(VENDOR == "s")
+    return (row / 16) * 16 + remaps[row % 16];
+  else
+    return row;
+}
+
+pte_t *physmap = NULL;
+
+// modify array size when MEM_SIZE is changed
+size_t phys_addr[24] = {0,};
+size_t virt_addr[24] = {0,};
 
 // initialize static variable
 std::map<size_t, MemConfiguration> DRAMAddr::Configs;
+
+void DRAMAddr::initialize_configs() {
+  struct MemConfiguration single_rank = {
+    // .IDENTIFIER = (CHANS(1UL) | DIMMS(1UL) | RANKS(1UL) | BANKS(16UL)),
+    // .BK_SHIFT = 30,
+    // .BK_MASK = (0b0000000000000000000000000000001111),
+    // .ROW_SHIFT = 0,
+    // .ROW_MASK = (0b0000000000000000011111111111111111),
+    // .COL_SHIFT = 17,
+    // .COL_MASK = (0b0000000000000000000001111111111111),
+    // .DRAM_MTX = {          
+    //     0b0000000000000100000000000001000000,
+    //     0b0000000000001000100000000000000000,
+    //     0b0000000000010001000000000000000000,
+    //     0b0000000000100010000000000000000000,
+    //     0b0000000000000000000010000000000000,
+    //     0b0000000000000000000001000000000000,
+    //     0b0000000000000000000000100000000000,
+    //     0b0000000000000000000000010000000000,
+    //     0b0000000000000000000000001000000000,
+    //     0b0000000000000000000000000100000000,
+    //     0b0000000000000000000000000010000000,
+    //     0b0000000000000000000000000000100000,
+    //     0b0000000000000000000000000000010000,
+    //     0b0000000000000000000000000000001000,
+    //     0b0000000000000000000000000000000100,
+    //     0b0000000000000000000000000000000010,
+    //     0b0000000000000000000000000000000001,
+    //     0b1000000000000000000000000000000000,
+    //     0b0100000000000000000000000000000000,
+    //     0b0010000000000000000000000000000000,
+    //     0b0001000000000000000000000000000000,
+    //     0b0000100000000000000000000000000000,
+    //     0b0000010000000000000000000000000000,
+    //     0b0000001000000000000000000000000000,
+    //     0b0000000100000000000000000000000000,
+    //     0b0000000010000000000000000000000000,
+    //     0b0000000001000000000000000000000000,
+    //     0b0000000000100000000000000000000000,
+    //     0b0000000000010000000000000000000000,
+    //     0b0000000000001000000000000000000000,
+    //     0b0000000000000100000000000000000000,
+    //     0b0000000000000000010000000000000000,
+    //     0b0000000000000000001000000000000000,
+    //     0b0000000000000000000100000000000000
+    //   },
+    // .ADDR_MTX = {          
+    //     0b0000000000000000010000000000000000,
+    //     0b0000000000000000001000000000000000,
+    //     0b0000000000000000000100000000000000,
+    //     0b0000000000000000000010000000000000,
+    //     0b0000000000000000000001000000000000,
+    //     0b0000000000000000000000100000000000,
+    //     0b0000000000000000000000010000000000,
+    //     0b0000000000000000000000001000000000,
+    //     0b0000000000000000000000000100000000,
+    //     0b0000000000000000000000000010000000,
+    //     0b0000000000000000000000000001000000,
+    //     0b0000000000000000000000000000100000,
+    //     0b0000000000000000000000000000010000,
+    //     0b0000000000000000000000000000001000,
+    //     0b0001000000000000000000000001000000,
+    //     0b0010000000000000000000000000100000,
+    //     0b0100000000000000000000000000010000,
+    //     0b0000000000000000000000000000000100,
+    //     0b0000000000000000000000000000000010,
+    //     0b0000000000000000000000000000000001,
+    //     0b0000100000000000000000000000000000,
+    //     0b0000010000000000000000000000000000,
+    //     0b0000001000000000000000000000000000,
+    //     0b0000000100000000000000000000000000,
+    //     0b0000000010000000000000000000000000,
+    //     0b0000000001000000000000000000000000,
+    //     0b0000000000100000000000000000000000,
+    //     0b1000000000000000000000000000001000,
+    //     0b0000000000010000000000000000000000,
+    //     0b0000000000001000000000000000000000,
+    //     0b0000000000000100000000000000000000,
+    //     0b0000000000000010000000000000000000,
+    //     0b0000000000000001000000000000000000,
+    //     0b0000000000000000100000000000000000
+    //   }
+  };
+  struct MemConfiguration dual_rank = {
+    .IDENTIFIER = (CHANS(1UL) | DIMMS(1UL) | RANKS(2UL) | BANKS(16UL)),
+    .BK_SHIFT = 30,
+    .BK_MASK = (0b00000000000000000000000000000011111),
+    .ROW_SHIFT = 0,
+    .ROW_MASK = (0b00000000000000000011111111111111111),
+    .COL_SHIFT = 17,
+    .COL_MASK = (0b00000000000000000000001111111111111),
+    .DRAM_MTX = {          
+        0b00000000000000000000010000000000000,
+        0b00000000000001000000000000001000000,
+        0b00000000000010001000000000000000000,
+        0b00000000000100010000000000000000000,
+        0b00000000001000100000000000000000000,
+        0b00000000000000000000100000000000000,
+        0b00000000000000000000001000000000000,
+        0b00000000000000000000000100000000000,
+        0b00000000000000000000000010000000000,
+        0b00000000000000000000000001000000000,
+        0b00000000000000000000000000100000000,
+        0b00000000000000000000000000010000000,
+        0b00000000000000000000000000000100000,
+        0b00000000000000000000000000000010000,
+        0b00000000000000000000000000000001000,
+        0b00000000000000000000000000000000100,
+        0b00000000000000000000000000000000010,
+        0b00000000000000000000000000000000001,
+        0b10000000000000000000000000000000000,
+        0b01000000000000000000000000000000000,
+        0b00100000000000000000000000000000000,
+        0b00010000000000000000000000000000000,
+        0b00001000000000000000000000000000000,
+        0b00000010000000000000000000000000000,
+        0b00000001000000000000000000000000000,
+        0b00000000100000000000000000000000000,
+        0b00000000010000000000000000000000000,
+        0b00000000001000000000000000000000000,
+        0b00000000000100000000000000000000000,
+        0b00000000000010000000000000000000000,
+        0b00000100000000000000000000000000000,
+        0b00000000000001000000000000000000000,
+        0b00000000000000000100000000000000000,
+        0b00000000000000000010000000000000000,
+        0b00000000000000000001000000000000000
+      },
+    .ADDR_MTX = {          
+        0b00000000000000000010000000000000000,
+        0b00000000000000000001000000000000000,
+        0b00000000000000000000100000000000000,
+        0b00000000000000000000010000000000000,
+        0b00000000000000000000001000000000000,
+        0b00000000000000000000000000000010000,
+        0b00000000000000000000000100000000000,
+        0b00000000000000000000000010000000000,
+        0b00000000000000000000000001000000000,
+        0b00000000000000000000000000100000000,
+        0b00000000000000000000000000010000000,
+        0b00000000000000000000000000001000000,
+        0b00000000000000000000000000000100000,
+        0b00000000000000000000000000000001000,
+        0b00001000000000000000000000010000000,
+        0b00010000000000000000000000001000000,
+        0b00100000000000000000000000000100000,
+        0b00000000000000000000000000000000100,
+        0b00000000000000000000000000000000010,
+        0b00000000000000000000000000000000001,
+        0b00000100000000000000000000000000000,
+        0b10000000000000000000000000000000000,
+        0b00000010000000000000000000000000000,
+        0b00000001000000000000000000000000000,
+        0b00000000100000000000000000000000000,
+        0b00000000010000000000000000000000000,
+        0b00000000001000000000000000000000000,
+        0b00000000000100000000000000000000000,
+        0b01000000000000000000000000000001000,
+        0b00000000000010000000000000000000000,
+        0b00000000000001000000000000000000000,
+        0b00000000000000100000000000000000000,
+        0b00000000000000010000000000000000000,
+        0b00000000000000001000000000000000000,
+        0b00000000000000000100000000000000000
+      }
+  };
+  DRAMAddr::Configs = {
+      {(CHANS(1UL) | DIMMS(1UL) | RANKS(1UL) | BANKS(16UL)), single_rank},
+      {(CHANS(1UL) | DIMMS(1UL) | RANKS(2UL) | BANKS(16UL)), dual_rank}
+  };
+}
+
+void DRAMAddr::set_base_msb(void *buff) {
+  base_msb = (size_t) buff & (~((size_t) (1ULL << 30UL) - 1UL));  // get higher order bits above the super page
+}
+
+// TODO we can create a DRAMconfig class to load the right matrix depending on
+// the configuration. You could also test it by checking if you can trigger bank conflcits
+void DRAMAddr::load_mem_config(mem_config_t cfg) {
+  DRAMAddr::initialize_configs();
+  MemConfig = Configs[cfg];
+}
 
 void DRAMAddr::initialize(uint64_t num_bank_rank_functions, volatile char *start_address) {
   // TODO: This is a shortcut to check if it's a single rank dimm or dual rank in order to load the right memory
@@ -20,15 +220,118 @@ void DRAMAddr::initialize(uint64_t num_bank_rank_functions, volatile char *start
   DRAMAddr::set_base_msb((void *) start_address);
 }
 
-void DRAMAddr::set_base_msb(void *buff) {
-  base_msb = (size_t) buff & (~((size_t) (1ULL << 30UL) - 1UL));  // get higher order bits above the super page
+size_t DRAMAddr::get_pfn(size_t entry) {
+    return ((entry) & 0x7fffffffffffff);
 }
 
-// TODO we can create a DRAMconfig class to load the right matrix depending on
-// the configuration. You could also test it by checking if you can trigger bank conflcits
-void DRAMAddr::load_mem_config(mem_config_t cfg) {
-  DRAMAddr::initialize_configs();
-  MemConfig = Configs[cfg];
+size_t DRAMAddr::get_phys_addr(size_t v_addr) 
+{
+    size_t entry; 
+    size_t offset = (v_addr/4096) * sizeof(entry);
+    size_t pfn; 
+    int fd = open("/proc/self/pagemap", O_RDONLY);
+    assert(fd >= 0);
+    int bytes_read = pread(fd, &entry, sizeof(entry), offset);
+    close(fd);
+    assert(bytes_read == 8);
+    assert(entry & (1ULL << 63)); // present bit
+    pfn = get_pfn(entry);
+    assert(pfn != 0);
+    return (pfn*4096) | (v_addr & 4095); 
+}
+
+size_t DRAMAddr::get_phys_addr2(uint64_t v_addr, int pmap_fd)
+{
+	uint64_t entry;
+	uint64_t offset = (v_addr / 4096) * sizeof(entry);
+	uint64_t pfn;
+	bool to_open = false;
+
+	if (pmap_fd == -1) {
+		pmap_fd = open("/proc/self/pagemap", O_RDONLY);
+		assert(pmap_fd >= 0);
+		to_open = true;
+	}
+	// int rd = fread(&entry, sizeof(entry), 1 ,fp);
+	int bytes_read = pread(pmap_fd, &entry, sizeof(entry), offset);
+
+	assert(bytes_read == 8);
+	assert(entry & (1ULL << 63));
+
+	if (to_open) {
+		close(pmap_fd);
+	}
+
+	pfn = get_pfn(entry);
+	assert(pfn != 0);
+	return (pfn << 12) | (v_addr & 4095);
+}
+
+int DRAMAddr::phys_cmp(const void *p1, const void *p2)
+{
+	return ((pte_t *) p1)->p_addr - ((pte_t *) p2)->p_addr;
+}
+
+void DRAMAddr::set_physmap(char *mem)
+{
+	int l_size = MEM_SIZE / 4096;
+	physmap = (pte_t *) malloc(sizeof(pte_t) * l_size);
+	int pmap_fd = open("/proc/self/pagemap", O_RDONLY);
+	assert(pmap_fd >= 0);
+
+	static size_t base_phys = get_phys_addr2((uint64_t) mem, pmap_fd);
+
+  for (uint64_t tmp = (uint64_t) mem;
+	     tmp < (uint64_t) mem + MEM_SIZE; tmp += GB(1)) {
+
+    phys_addr[tmp / GB(1) - 1024] = get_phys_addr2(tmp, pmap_fd);
+    virt_addr[tmp / GB(1) - 1024] = tmp;
+    size_t res = 0;
+    for (size_t i : MemConfig.DRAM_MTX) {
+      res <<= 1ULL;
+      res |= (size_t) __builtin_parityll(get_phys_addr2(tmp, pmap_fd) & i);
+    }
+    size_t row = (res >> MemConfig.ROW_SHIFT) & MemConfig.ROW_MASK;
+    Logger::log_info(format_string("virt_addr[%ld]: 0x%lx, phys_addr[%ld]: 0x%lx, row: %ld",
+                      tmp / GB(1) - 1024, tmp, tmp / GB(1) - 1024, get_phys_addr2(tmp, pmap_fd), row));
+	}
+  
+	close(pmap_fd);
+}
+
+size_t DRAMAddr::virt_2_phys(char *v_addr)
+{
+	for (uint64_t i = 0; i < MEM_SIZE / 4096; i++) {
+		if (physmap[i].v_addr ==
+		    (char *)((uint64_t) v_addr & ~((uint64_t) (4096 - 1))))
+		{
+
+			return physmap[i].
+			    p_addr | ((uint64_t) v_addr &
+				      ((uint64_t) 4096 - 1));
+		}
+	}
+	return (size_t) NOT_FOUND;
+}
+
+char *DRAMAddr::phys_2_virt(char* pp_addr) const
+{
+
+  size_t tmp_phys_addr = 0, tmp_virt_addr = 0;
+  for(int i = 0; i < MEM_SIZE / GB(1); i++){
+    if((size_t)pp_addr < phys_addr[i] + GB(1) && phys_addr[i] <= (size_t)pp_addr){
+      tmp_phys_addr = (size_t)pp_addr;
+      tmp_virt_addr = virt_addr[i] + ((size_t)pp_addr - phys_addr[i]);
+    }
+  }
+  // fprintf(stderr, "translation: 0x%lx to 0x%lx", (size_t)pp_addr, tmp_virt_addr);
+  if (tmp_phys_addr == 0){
+    std::mt19937 gen = std::mt19937(std::random_device()());
+    // modify modulo value when MEM_SIZE is changed
+    return (char *)(virt_addr[(size_t)pp_addr % 24] + Range<int>(0x0, 0x40000000).get_random_number(gen)); 
+  }
+
+  return (char *)tmp_virt_addr;
 }
 
 DRAMAddr::DRAMAddr() = default;
@@ -40,11 +343,24 @@ DRAMAddr::DRAMAddr(size_t bk, size_t r, size_t c) {
 }
 
 DRAMAddr::DRAMAddr(void *addr) {
-  auto p = (size_t) addr;
+  auto p = get_phys_addr((size_t) addr);
+
   size_t res = 0;
-  for (unsigned long i : MemConfig.DRAM_MTX) {
+  for (size_t i : MemConfig.DRAM_MTX) {
     res <<= 1ULL;
-    res |= (size_t) __builtin_parityl(p & i);
+    res |= (size_t) __builtin_parityll(p & i);
+  }
+  bank = (res >> MemConfig.BK_SHIFT) & MemConfig.BK_MASK;
+  row = (res >> MemConfig.ROW_SHIFT) & MemConfig.ROW_MASK;
+  col = (res >> MemConfig.COL_SHIFT) & MemConfig.COL_MASK;
+}
+
+DRAMAddr::DRAMAddr(size_t addr) {
+  size_t p = addr;
+  size_t res = 0;
+  for (size_t i : MemConfig.DRAM_MTX) {
+    res <<= 1ULL;
+    res |= (size_t) __builtin_parityll(p & i);
   }
   bank = (res >> MemConfig.BK_SHIFT) & MemConfig.BK_MASK;
   row = (res >> MemConfig.ROW_SHIFT) & MemConfig.ROW_MASK;
@@ -62,12 +378,25 @@ void *DRAMAddr::to_virt() {
 void *DRAMAddr::to_virt() const {
   size_t res = 0;
   size_t l = this->linearize();
-  for (unsigned long i : MemConfig.ADDR_MTX) {
+  for (size_t i : MemConfig.ADDR_MTX) {
     res <<= 1ULL;
-    res |= (size_t) __builtin_parityl(l & i);
+    res |= (size_t) __builtin_parityll(l & i);
   }
-  void *v_addr = (void *) (base_msb | res);
-  return v_addr;
+  return (void *) this->phys_2_virt((char *)(res));
+}
+
+void *DRAMAddr::to_phys() {
+  return const_cast<const DRAMAddr *>(this)->to_phys();
+}
+
+void *DRAMAddr::to_phys() const {
+  size_t res = 0;
+  size_t l = this->linearize();
+  for (size_t i : MemConfig.ADDR_MTX) {
+    res <<= 1ULL;
+    res |= (size_t) __builtin_parityll(l & i);
+  }
+  return (void *) res;
 }
 
 std::string DRAMAddr::to_string() {
@@ -90,12 +419,12 @@ std::string DRAMAddr::to_string_compact() const {
 }
 
 DRAMAddr DRAMAddr::add(size_t bank_increment, size_t row_increment, size_t column_increment) const {
-  return {bank + bank_increment, row + row_increment, col + column_increment};
+  return {bank + bank_increment, remappings(remappings(row) + row_increment), col + column_increment};
 }
 
 void DRAMAddr::add_inplace(size_t bank_increment, size_t row_increment, size_t column_increment) {
   bank += bank_increment;
-  row += row_increment;
+  row = remappings(remappings(row) + row_increment);
   col += column_increment;
 }
 
@@ -124,161 +453,6 @@ nlohmann::json DRAMAddr::get_memcfg_json() {
 }
 
 #endif
-
-void DRAMAddr::initialize_configs() {
-  struct MemConfiguration single_rank = {
-      .IDENTIFIER = (CHANS(1UL) | DIMMS(1UL) | RANKS(1UL) | BANKS(16UL)),
-      .BK_SHIFT =  26,
-      .BK_MASK =  (0b1111),
-      .ROW_SHIFT =  0,
-      .ROW_MASK =  (0b1111111111111),
-      .COL_SHIFT =  13,
-      .COL_MASK =  (0b1111111111111),
-      /* maps a virtual addr -> DRAM addr: bank (4 bits) | col (13 bits) | row (13 bits) */
-      .DRAM_MTX =  {
-          0b000000000000000010000001000000, /* 0x02040 bank b3 = addr b6 + b13 */
-          0b000000000000100100000000000000, /* 0x24000 bank b2 = addr b14 + b17 */
-          0b000000000001001000000000000000, /* 0x48000 bank b1 = addr b15 + b18 */
-          0b000000000010010000000000000000, /* 0x90000 bank b0 = addr b16 + b19 */
-          0b000000000000000010000000000000, /* col b12 = addr b13 */
-          0b000000000000000001000000000000, /* col b11 = addr b12 */
-          0b000000000000000000100000000000, /* col b10 = addr b11 */
-          0b000000000000000000010000000000, /* col b9 = addr b10 */
-          0b000000000000000000001000000000, /* col b8 = addr b9 */
-          0b000000000000000000000100000000, /* col b7 = addr b8*/
-          0b000000000000000000000010000000, /* col b6 = addr b7 */
-          0b000000000000000000000000100000, /* col b5 = addr b5 */
-          0b000000000000000000000000010000, /* col b4 = addr b4*/
-          0b000000000000000000000000001000, /* col b3 = addr b3 */
-          0b000000000000000000000000000100, /* col b2 = addr b2 */
-          0b000000000000000000000000000010, /* col b1 = addr b1 */
-          0b000000000000000000000000000001, /* col b0 = addr b0*/
-          0b100000000000000000000000000000, /* row b12 = addr b29 */
-          0b010000000000000000000000000000, /* row b11 = addr b28 */
-          0b001000000000000000000000000000, /* row b10 = addr b27 */
-          0b000100000000000000000000000000, /* row b9 = addr b26 */
-          0b000010000000000000000000000000, /* row b8 = addr b25 */
-          0b000001000000000000000000000000, /* row b7 = addr b24 */
-          0b000000100000000000000000000000, /* row b6 = addr b23 */
-          0b000000010000000000000000000000, /* row b5 = addr b22 */
-          0b000000001000000000000000000000, /* row b4 = addr b21 */
-          0b000000000100000000000000000000, /* row b3 = addr b20 */
-          0b000000000010000000000000000000, /* row b2 = addr b19 */
-          0b000000000001000000000000000000, /* row b1 = addr b18 */
-          0b000000000000100000000000000000, /* row b0 = addr b17 */
-          },
-      /* maps a DRAM addr (bank | col | row) --> virtual addr */
-      .ADDR_MTX =  {
-          0b000000000000000001000000000000, /* addr b29 = row b12 */
-          0b000000000000000000100000000000, /* addr b28 = row b11 */
-          0b000000000000000000010000000000, /* addr b27 = row b10 */
-          0b000000000000000000001000000000, /* addr b26 = row b9 */
-          0b000000000000000000000100000000, /* addr b25 = row b8 */
-          0b000000000000000000000010000000, /* addr b24 = row b7 */
-          0b000000000000000000000001000000, /* addr b23 = row b6 */
-          0b000000000000000000000000100000, /* addr b22 = row b5 */
-          0b000000000000000000000000010000, /* addr b21 = row b4 */
-          0b000000000000000000000000001000, /* addr b20 = row b3 */
-          0b000000000000000000000000000100, /* addr b19 = row b2 */
-          0b000000000000000000000000000010, /* addr b18 = row b1 */
-          0b000000000000000000000000000001, /* addr b17 = row b0 */
-          0b000100000000000000000000000100, /* addr b16 = bank b0 + row b2 (addr b19) */
-          0b001000000000000000000000000010, /* addr b15 = bank b1 + row b1 (addr b18) */
-          0b010000000000000000000000000001, /* addr b14 = bank b2 + row b0 (addr b17) */
-          0b000010000000000000000000000000, /* addr b13 = col b12 */
-          0b000001000000000000000000000000, /* addr b12 = col b11 */
-          0b000000100000000000000000000000, /* addr b11 = col b10 */
-          0b000000010000000000000000000000, /* addr b10 = col b9 */
-          0b000000001000000000000000000000, /* addr b9 = col b8 */
-          0b000000000100000000000000000000, /* addr b8 = col b7 */
-          0b000000000010000000000000000000, /* addr b7 = col b6 */
-          0b100010000000000000000000000000, /* addr b6 = bank b3 + col b12 (addr b13)*/
-          0b000000000001000000000000000000, /* addr b5 = col b5 */
-          0b000000000000100000000000000000, /* addr b4 = col b4 */
-          0b000000000000010000000000000000, /* addr b3 = col b3 */
-          0b000000000000001000000000000000, /* addr b2 = col b2 */
-          0b000000000000000100000000000000, /* addr b1 = col b1 */
-          0b000000000000000010000000000000  /* addr b0 = col b0 */
-      }
-  };
-  struct MemConfiguration dual_rank = {
-      .IDENTIFIER = (CHANS(1UL) | DIMMS(1UL) | RANKS(2UL) | BANKS(16UL)),
-      .BK_SHIFT =  25,
-      .BK_MASK =  (0b11111),
-      .ROW_SHIFT =  0,
-      .ROW_MASK =  (0b111111111111),
-      .COL_SHIFT =  12,
-      .COL_MASK =  (0b1111111111111),
-      .DRAM_MTX =  {
-          0b000000000000000010000001000000,
-          0b000000000001000100000000000000,
-          0b000000000010001000000000000000,
-          0b000000000100010000000000000000,
-          0b000000001000100000000000000000,
-          0b000000000000000010000000000000,
-          0b000000000000000001000000000000,
-          0b000000000000000000100000000000,
-          0b000000000000000000010000000000,
-          0b000000000000000000001000000000,
-          0b000000000000000000000100000000,
-          0b000000000000000000000010000000,
-          0b000000000000000000000000100000,
-          0b000000000000000000000000010000,
-          0b000000000000000000000000001000,
-          0b000000000000000000000000000100,
-          0b000000000000000000000000000010,
-          0b000000000000000000000000000001,
-          0b100000000000000000000000000000,
-          0b010000000000000000000000000000,
-          0b001000000000000000000000000000,
-          0b000100000000000000000000000000,
-          0b000010000000000000000000000000,
-          0b000001000000000000000000000000,
-          0b000000100000000000000000000000,
-          0b000000010000000000000000000000,
-          0b000000001000000000000000000000,
-          0b000000000100000000000000000000,
-          0b000000000010000000000000000000,
-          0b000000000001000000000000000000
-      },
-      .ADDR_MTX =  {
-          0b000000000000000000100000000000,
-          0b000000000000000000010000000000,
-          0b000000000000000000001000000000,
-          0b000000000000000000000100000000,
-          0b000000000000000000000010000000,
-          0b000000000000000000000001000000,
-          0b000000000000000000000000100000,
-          0b000000000000000000000000010000,
-          0b000000000000000000000000001000,
-          0b000000000000000000000000000100,
-          0b000000000000000000000000000010,
-          0b000000000000000000000000000001,
-          0b000010000000000000000000001000,
-          0b000100000000000000000000000100,
-          0b001000000000000000000000000010,
-          0b010000000000000000000000000001,
-          0b000001000000000000000000000000,
-          0b000000100000000000000000000000,
-          0b000000010000000000000000000000,
-          0b000000001000000000000000000000,
-          0b000000000100000000000000000000,
-          0b000000000010000000000000000000,
-          0b000000000001000000000000000000,
-          0b100001000000000000000000000000,
-          0b000000000000100000000000000000,
-          0b000000000000010000000000000000,
-          0b000000000000001000000000000000,
-          0b000000000000000100000000000000,
-          0b000000000000000010000000000000,
-          0b000000000000000001000000000000
-      }
-  };
-  DRAMAddr::Configs = {
-      {(CHANS(1UL) | DIMMS(1UL) | RANKS(1UL) | BANKS(16UL)), single_rank},
-      {(CHANS(1UL) | DIMMS(1UL) | RANKS(2UL) | BANKS(16UL)), dual_rank}
-  };
-}
 
 #ifdef ENABLE_JSON
 

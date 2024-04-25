@@ -29,6 +29,8 @@ struct ProgramArguments {
   bool do_fuzzing = true;
   bool use_synchronization = true;
   bool fixed_acts_per_ref = false;
+  int mode = 0;
+  int num_rows = 20;
 };
 
 extern ProgramArguments program_args;

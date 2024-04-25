@@ -8,6 +8,8 @@
 #include <string>
 #include <array>
 
+#include <sched.h>
+
 #include "Forges/TraditionalHammerer.hpp"
 #include "Forges/FuzzyHammerer.hpp"
 
@@ -15,6 +17,15 @@
 #include <argagg/convert/csv.hpp>
 
 ProgramArguments program_args;
+
+int gt(const void * a, const void * b) {
+   return ( *(int*)a - *(int*)b );
+}
+
+uint64_t median(uint64_t* vals, size_t size) {
+	qsort(vals, size, sizeof(uint64_t), gt);
+	return ((size%2)==0) ? vals[size/2] : (vals[(size_t)size/2]+vals[((size_t)size/2+1)])/2;
+}
 
 int check_cpu() {
   std::array<char, 128> buffer{};
@@ -61,7 +72,7 @@ int main(int argc, char **argv) {
   Logger::initialize();
 
   // check if the system's CPU is supported by our hard-coded DRAM address matrices
-  check_cpu();
+  // check_cpu();
 
   handle_args(argc, argv);
 
@@ -88,6 +99,11 @@ int main(int argc, char **argv) {
   // initialize the DRAMAddr class to load the proper memory configuration
   DRAMAddr::initialize(dram_analyzer.get_bank_rank_functions().size(), memory.get_starting_address());
 
+  Logger::log_info("Set address map start.");
+  auto start_mem = DRAMAddr((char*) 0x10000000000); // Memory.hpp's start_address
+  start_mem.set_physmap((char*) 0x10000000000);
+  Logger::log_info("Set address map end.");
+
   // count the number of possible activations per refresh interval, if not given as program argument
   if (program_args.acts_per_trefi==0)
     program_args.acts_per_trefi = dram_analyzer.count_acts_per_trefi();
@@ -104,13 +120,73 @@ int main(int argc, char **argv) {
     FuzzyHammerer::n_sided_frequency_based_hammering(dram_analyzer, memory, static_cast<int>(program_args.acts_per_trefi), program_args.runtime_limit,
         program_args.num_address_mappings_per_pattern, program_args.sweeping);
   } else if (!program_args.do_fuzzing) {
-//    TraditionalHammerer::n_sided_hammer(memory, program_args.acts_per_trefi, program_args.runtime_limit);
+    // TraditionalHammerer::n_sided_hammer(memory, program_args.acts_per_trefi, program_args.runtime_limit);
+    // TraditionalHammerer::n_sided_hammer_coupled_row(memory, 68, program_args.runtime_limit, program_args.mode, program_args.num_rows);
+    TraditionalHammerer::n_sided_hammer_HCfirst(memory, 68, program_args.runtime_limit, program_args.mode, program_args.num_rows);
+    // TraditionalHammerer::n_sided_hammer_coupled_row(memory, program_args.acts_per_trefi, program_args.runtime_limit, program_args.mode, program_args.num_rows);
 //    TraditionalHammerer::n_sided_hammer_experiment(memory, program_args.acts_per_trefi);
-    TraditionalHammerer::n_sided_hammer_experiment_frequencies(memory);
+    // TraditionalHammerer::n_sided_hammer_experiment_frequencies(memory);
   } else {
     Logger::log_error("Invalid combination of program control-flow arguments given. "
                       "Note: Fuzzing is only supported with synchronized hammering.");
   }
+
+  // uint64_t* time_vals = (uint64_t*) calloc(1000, sizeof(uint64_t));
+
+  // for(int i = 30000; i < 30000 + 4096 - 1024; i ++){
+  //   volatile char *vaddr1 = static_cast<volatile char*>(DRAMAddr(static_cast<size_t>(0), static_cast<size_t>(i), 0).to_virt());
+  //   volatile char *vaddr2 = static_cast<volatile char*>(DRAMAddr(static_cast<size_t>(0), static_cast<size_t>((i + 65536)%131072), 0).to_virt());
+  //   volatile char *vaddr3 = static_cast<volatile char*>(DRAMAddr(static_cast<size_t>(0), static_cast<size_t>(i + 1024), 0).to_virt());
+  //   // fprintf(stderr, "vaddr1: 0x%lx\n", (size_t)vaddr1);
+  //   // fprintf(stderr, "vaddr2: 0x%lx\n", (size_t)vaddr2);
+  //   // fprintf(stderr, "vaddr3: 0x%lx\n", (size_t)vaddr3);
+  //   if((size_t)vaddr2 % 1024 != 0 || (size_t)vaddr3 % 1024 != 0) continue;
+
+  //   uint64_t before;
+  //   uint64_t after;
+    
+  //   sched_yield();
+  //   for(int i = 0; i < 1000; i++){
+  //     clflush(vaddr1);
+  //     clflush(vaddr3);
+  //     mfence();
+
+  //     before = rdtscp();
+  //     lfence();
+
+  //     (void)*vaddr1;
+  //     (void)*vaddr3;
+
+  //     after = rdtscp();
+  //     lfence();
+  //     time_vals[i] = after - before;
+  //     // fprintf(stderr, "elapsed time: %ld\n", after - before);
+  //   }
+  //   uint64_t mdn2 = median(time_vals, 1000);
+  //   fprintf(stderr, "different row elapsed time: %ld\n", mdn2);
+
+  //   sched_yield();
+  //   for(int i = 0; i < 10000; i++){
+  //     clflush(vaddr1);
+  //     clflush(vaddr2);
+  //     mfence();
+
+  //     before = rdtscp();
+  //     lfence();
+
+  //     (void)*vaddr1;
+  //     (void)*vaddr2;
+
+  //     after = rdtscp();
+  //     lfence();
+  //     time_vals[i] = after - before;
+  //     // fprintf(stderr, "elapsed time: %ld\n", after - before);
+  //   }
+  //   mdn2 = median(time_vals, 1000);
+  //   fprintf(stderr, "coupled_row elapsed time: %ld\n", mdn2);
+  // }
+
+  // free(time_vals);
 
   Logger::close();
   return EXIT_SUCCESS;
@@ -153,6 +229,9 @@ void handle_args(int argc, char **argv) {
       {"runtime-limit", {"-t", "--runtime-limit"}, "number of seconds to run the fuzzer before sweeping/terminating (default: 120)", 1},
       {"acts-per-ref", {"-a", "--acts-per-ref"}, "number of activations in a tREF interval, i.e., 7.8us (default: None)", 1},
       {"probes", {"-p", "--probes"}, "number of different DRAM locations to try each pattern on (default: NUM_BANKS/4)", 1},
+
+      {"mode", {"-m", "--mode"}, "0: typical many-sided, 1: coupled-row many-sided, 2: multi-bank many-sided", 1},
+      {"num-rows", {"-n", "--num-rows"}, "number of aggressor rows for many-sided attack (default: 20)", 1},
     }};
 
   argagg::parser_results parsed_args;
@@ -204,6 +283,12 @@ void handle_args(int argc, char **argv) {
   program_args.num_address_mappings_per_pattern = parsed_args["probes"].as<size_t>(program_args.num_address_mappings_per_pattern);
   Logger::log_debug(format_string("Set --probes=%d", program_args.num_address_mappings_per_pattern));
 
+  program_args.num_rows = parsed_args["num-rows"].as<int>(program_args.num_rows);
+  Logger::log_debug(format_string("Set --num-rows=%d", program_args.num_rows));
+
+  program_args.mode = parsed_args["mode"].as<int>(program_args.mode);
+  Logger::log_debug(format_string("Set --mode=%d", program_args.mode));
+
   /**
    * program modes
    */
@@ -223,8 +308,10 @@ void handle_args(int argc, char **argv) {
       program_args.pattern_ids = std::unordered_set<std::string>();
     }
   } else {
-    program_args.do_fuzzing = parsed_args["fuzzing"].as<bool>(true);
+    // program_args.do_fuzzing = parsed_args["fuzzing"].as<bool>(true);
+    program_args.do_fuzzing = parsed_args["fuzzing"].as<bool>(false);
     const bool default_sync = true;
+    // const bool default_sync = false;
     program_args.use_synchronization = parsed_args.has_option("sync") || default_sync;
   }
 }

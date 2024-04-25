@@ -42,8 +42,10 @@ class DramAnalyzer {
     for (size_t i = 0; i < DRAMA_ROUNDS; i++) {
       (void)*a1;
       (void)*a2;
-      clflushopt(a1);
-      clflushopt(a2);
+      // clflushopt(a1);
+      // clflushopt(a2);
+      clflush(a1);
+      clflush(a2);
       mfence();
     }
     after = rdtscp();
