@@ -63,7 +63,7 @@ endif()
 
 if (BLACKSMITH_ENABLE_JSON)
     message(STATUS "Fetching external dependency nlohmann/json")
-    set(MESSAGE_QUIET ON)
+    set(MESSAGE_QUIET OFF)
 
     FetchContent_Declare(
             json

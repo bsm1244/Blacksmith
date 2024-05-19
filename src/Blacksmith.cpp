@@ -89,7 +89,7 @@ int main(int argc, char **argv) {
 
   // find address sets that create bank conflicts
   DramAnalyzer dram_analyzer(memory.get_starting_address());
-  dram_analyzer.find_bank_conflicts();
+  // dram_analyzer.find_bank_conflicts();
   if (program_args.num_ranks != 0) {
     dram_analyzer.load_known_functions(program_args.num_ranks);
   } else {
@@ -120,9 +120,11 @@ int main(int argc, char **argv) {
     FuzzyHammerer::n_sided_frequency_based_hammering(dram_analyzer, memory, static_cast<int>(program_args.acts_per_trefi), program_args.runtime_limit,
         program_args.num_address_mappings_per_pattern, program_args.sweeping);
   } else if (!program_args.do_fuzzing) {
+    fprintf(stderr, "acts_per_trefi: %ld\n", program_args.acts_per_trefi);
     // TraditionalHammerer::n_sided_hammer(memory, program_args.acts_per_trefi, program_args.runtime_limit);
-    // TraditionalHammerer::n_sided_hammer_coupled_row(memory, 68, program_args.runtime_limit, program_args.mode, program_args.num_rows);
-    TraditionalHammerer::n_sided_hammer_HCfirst(memory, 68, program_args.runtime_limit, program_args.mode, program_args.num_rows);
+    TraditionalHammerer::n_sided_hammer_coupled_row(memory, (program_args.acts_per_trefi / (program_args.num_rows)) * (program_args.num_rows), program_args.runtime_limit, program_args.mode, program_args.num_rows);
+    // TraditionalHammerer::n_sided_hammer_coupled_row(memory, 72, program_args.runtime_limit, program_args.mode, program_args.num_rows);
+    // TraditionalHammerer::n_sided_hammer_HCfirst(memory, 72, program_args.runtime_limit, program_args.mode, program_args.num_rows);
     // TraditionalHammerer::n_sided_hammer_coupled_row(memory, program_args.acts_per_trefi, program_args.runtime_limit, program_args.mode, program_args.num_rows);
 //    TraditionalHammerer::n_sided_hammer_experiment(memory, program_args.acts_per_trefi);
     // TraditionalHammerer::n_sided_hammer_experiment_frequencies(memory);

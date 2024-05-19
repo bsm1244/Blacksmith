@@ -13,14 +13,11 @@ class TraditionalHammerer {
   static void hammer(std::vector<volatile char *> &aggressors);
 
   static void hammer_sync1(std::vector<volatile char *> &aggressors, int acts, volatile char *d1, volatile char *d2);
-  static void hammer_sync2(std::vector<volatile char *> &aggressors, int acts, volatile char *d1, volatile char *d2);
-  static void hammer_sync3(std::vector<volatile char *> &aggressors, int acts, volatile char *d1, volatile char *d2, int hammer_cnt);
 
  public:
   // do n-sided hammering
   [[maybe_unused]] static void n_sided_hammer(Memory &memory, int acts, long runtime_limit);
   [[maybe_unused]] static void n_sided_hammer_coupled_row(Memory &memory, int acts, long runtime_limit, int mode, int num_rows);
-  [[maybe_unused]] static void n_sided_hammer_HCfirst(Memory &memory, int acts, long runtime_limit, int mode, int hammer_cnt);
 
   // run experiment where we systematically try out all possible offsets
   [[maybe_unused]] static void n_sided_hammer_experiment(Memory &memory, int acts);

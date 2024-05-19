@@ -69,7 +69,7 @@ void DramAnalyzer::find_targets(std::vector<volatile char *> &target_bank) {
         cumulative_times += measure_time(a1, addr);
       }
     }
-    // fprintf(stderr, "cumulative_times: %ld, num_repititions: %ld, tmp.size(): %ld\n", cumulative_times, num_repetitions, tmp.size());
+    fprintf(stderr, "cumulative_times: %ld, num_repititions: %ld, tmp.size(): %ld\n", cumulative_times, num_repetitions, tmp.size());
     if(num_repetitions * tmp.size() == 0) continue;
     cumulative_times /= num_repetitions;
     if ((cumulative_times/tmp.size()) > THRESH) {
@@ -167,7 +167,7 @@ size_t DramAnalyzer::count_acts_per_trefi() {
         running_sum += value;
         // check after each 200 data points if our standard deviation reached 1 -> then stop collecting measurements
         if ((acts.size()%200)==0 && compute_std(acts, running_sum, acts.size())<30.0) break;
-        // fprintf(stderr, "std: %f\n", compute_std(acts, running_sum, acts.size()));
+        fprintf(stderr, "std: %f\n", compute_std(acts, running_sum, acts.size()));
       }
       count_old = count;
     }

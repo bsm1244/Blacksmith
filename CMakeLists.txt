@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.11 FATAL_ERROR)
-project(blacksmith_1GB VERSION 0.0.1 LANGUAGES CXX)
+project(blacksmith_exploit VERSION 0.0.1 LANGUAGES CXX)
 
 # === OPTIONS ==================================================================
 
@@ -137,19 +137,19 @@ endif ()
 # === BLACKSMITH ===============================================================
 
 add_executable(
-        blacksmith_1GB
+        blacksmith_exploit
         include/Blacksmith.hpp
         src/Blacksmith.cpp
 )
 
 target_compile_definitions(
-        blacksmith_1GB
+        blacksmith_exploit
         PRIVATE
         GIT_COMMIT_HASH="${GIT_COMMIT_HASH}"
 )
 
 target_link_libraries(
-        blacksmith_1GB
+        blacksmith_exploit
         PRIVATE
         bs
         argagg

@@ -44,7 +44,7 @@ uint64_t static inline GB(uint64_t value) {
 #define CACHELINE_SIZE 64
 
 // number of rounds to hammer
-#define HAMMER_ROUNDS 1000000
+#define HAMMER_ROUNDS 1280000
 
 // threshold to distinguish between row buffer miss (t > THRESH) and row buffer hit (t < THRESH)
 // #define THRESH 495  // worked best on DIMM 6
@@ -66,9 +66,9 @@ uint64_t static inline GB(uint64_t value) {
 #define CHANNEL 1
 
 // number of bytes to be allocated
-#define MEM_SIZE (GB(24))
+#define MEM_SIZE (GB(16))
 
 // vendor for row remapping in Samsung DIMMs
-#define VENDOR "s"
+#define VENDOR "sk"
 
 #endif /* GLOBAL_DEFINES */
